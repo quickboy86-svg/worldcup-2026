@@ -20,6 +20,14 @@
     header { background: linear-gradient(160deg, #0a3d1f 0%, var(--navy) 65%); border-bottom: 2px solid var(--gold); padding: 40px 20px; text-align: center; }
     h1 { font-family: 'Outfit', sans-serif; font-size: 2.5rem; font-weight: 700; }
     h1 span { color: var(--gold); }
+
+    /* 상태 표시바 */
+    .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 20px; background: rgba(0,0,0,0.3); font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+    .status-dot.live { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: pulse 1.5s infinite; }
+    .status-dot.ok   { background: #4ade80; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
     main { max-width: 1100px; margin: 40px auto; padding: 0 20px 80px; }
     .section-title { font-family: 'Outfit', sans-serif; font-size: 1.8rem; font-weight: 700; margin: 30px 0 20px; }
     
@@ -61,7 +69,8 @@
     .team-name-sm { flex: 1; }
     .team-name-sm.home { text-align: right; }
     .team-name-sm.away { text-align: left; }
-    .score-box { font-family: 'Outfit', sans-serif; font-size: 0.9rem; color: var(--gold); background: rgba(240,192,64,0.2); border: 1px solid rgba(240,192,64,0.4); border-radius: 6px; padding: 3px 8px; min-width: 44px; font-weight: 700; }
+    .score-box { font-family: 'Outfit', sans-serif; font-size: 0.9rem; color: var(--gold); background: rgba(240,192,64,0.2); border: 1px solid rgba(240,192,64,0.4); border-radius: 6px; padding: 3px 8px; min-width: 44px; font-weight: 700; text-align: center; }
+    .score-box.live { color: #4ade80; background: rgba(74,222,128,0.15); border-color: rgba(74,222,128,0.4); animation: pulse 1.5s infinite; }
 
     .rules-box { background: linear-gradient(135deg, rgba(15,92,46,0.3), rgba(7,20,43,0.6)); border: 1px solid rgba(240,192,64,0.3); border-radius: 12px; padding: 18px; margin: 20px 0; font-size: 0.88rem; line-height: 1.7; }
     .rules-box strong { color: var(--gold); }
@@ -96,6 +105,10 @@
   <header>
     <h1>2026 FIFA 월드컵<br/><span>일정 & 조 예측 게임</span></h1>
   </header>
+  <div class="status-bar">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">초기화 중…</span>
+  </div>
 
   <main>
     <section>
@@ -264,6 +277,246 @@
       if(card) card.classList.toggle('open');
     }
 
+    /* ================================================================
+       API 설정
+    ================================================================ */
+    const API_KEY      = '3f3a51fa9bb2436ea9a3e1108dba36d3';
+    const API_BASE     = 'https://api.football-data.org/v4';
+    const WC_START_KST = new Date('2026-06-12T04:00:00+09:00'); // 첫 경기 KST
+
+    let refreshTimer = null;
+
+    /* ================================================================
+       시간 유틸
+    ================================================================ */
+    function isAfterKickoff() {
+      return new Date() >= WC_START_KST;
+    }
+
+    // 오늘 경기가 있는지 확인 (match 데이터 기준)
+    function hasMatchToday(matches) {
+      const today = new Date().toDateString();
+      return matches.some(m => new Date(m.utcDate).toDateString() === today);
+    }
+
+    // 라이브 경기가 있는지 확인
+    function hasLiveMatch(matches) {
+      return matches.some(m => m.status === 'IN_PLAY' || m.status === 'PAUSED');
+    }
+
+    // 다음 호출 주기 결정
+    function getRefreshInterval(matches) {
+      if (hasLiveMatch(matches))   return 60 * 1000;       // 라이브: 1분
+      if (hasMatchToday(matches))  return 5 * 60 * 1000;   // 경기 당일: 5분
+      return 60 * 60 * 1000;                               // 평소: 1시간
+    }
+
+    function setStatusBar(state, text) {
+      const dot  = document.getElementById('status-dot');
+      const span = document.getElementById('status-text');
+      if (!dot || !span) return;
+      dot.className  = 'status-dot' + (state === 'live' ? ' live' : state === 'ok' ? ' ok' : '');
+      span.textContent = text;
+    }
+
+    /* ================================================================
+       API 호출
+    ================================================================ */
+    async function fetchFromAPI() {
+      const headers = { 'X-Auth-Token': API_KEY };
+      const [standingsRes, matchesRes] = await Promise.all([
+        fetch(`${API_BASE}/competitions/WC/standings`, { headers }),
+        fetch(`${API_BASE}/competitions/WC/matches`,   { headers }),
+      ]);
+      if (!standingsRes.ok) throw new Error(`standings API 오류 ${standingsRes.status}`);
+      if (!matchesRes.ok)   throw new Error(`matches API 오류 ${matchesRes.status}`);
+      const standings = await standingsRes.json();
+      const matches   = await matchesRes.json();
+      return { standings, matches };
+    }
+
+    /* ================================================================
+       생존팀 계산
+       - 조별리그: 각 조 1위·2위 + 3위 중 상위 8팀 진출 (총 32팀)
+       - 토너먼트: 매 라운드 패자 탈락
+    ================================================================ */
+    function calcSurvival(standingsData, allMatches) {
+      eliminatedTeams.clear();
+      advancedTeams.clear();
+
+      const groupStandings = standingsData.standings || [];
+
+      // ── 조별리그 완료된 조 처리 ──
+      const thirdPlacers = []; // { team, points, gd, gf }
+      groupStandings.forEach(gs => {
+        const table = gs.table || [];
+        if (!table.length) return;
+
+        // 해당 조 전체 경기가 끝났는지 확인
+        const groupLetter = gs.group?.replace('GROUP_', '');
+        const groupMatches = allMatches.filter(
+          m => m.stage === 'GROUP_STAGE' && m.group === gs.group
+        );
+        const allFinished = groupMatches.length > 0 &&
+          groupMatches.every(m => m.status === 'FINISHED');
+
+        if (allFinished) {
+          // 1위·2위 진출 확정
+          if (table[0]) advancedTeams.add(table[0].team.name);
+          if (table[1]) advancedTeams.add(table[1].team.name);
+          // 3위 후보
+          if (table[2]) thirdPlacers.push({
+            name: table[2].team.name,
+            points: table[2].points,
+            gd: table[2].goalDifference,
+            gf: table[2].goalsFor
+          });
+          // 4위 탈락
+          if (table[3]) eliminatedTeams.add(table[3].team.name);
+        }
+      });
+
+      // 3위 중 상위 8팀 진출 (12개 조 모두 완료됐을 때)
+      if (thirdPlacers.length === 12) {
+        thirdPlacers.sort((a,b) =>
+          b.points - a.points || b.gd - a.gd || b.gf - a.gf
+        );
+        thirdPlacers.slice(0, 8).forEach(t => advancedTeams.add(t.name));
+        thirdPlacers.slice(8).forEach(t => eliminatedTeams.add(t.name));
+      }
+
+      // ── 토너먼트 단계 처리 ──
+      const KO_STAGES = ['LAST_32','LAST_16','QUARTER_FINALS','SEMI_FINALS','FINAL'];
+      KO_STAGES.forEach(stage => {
+        allMatches
+          .filter(m => m.stage === stage && m.status === 'FINISHED')
+          .forEach(m => {
+            const hs = m.score?.fullTime?.home ?? 0;
+            const as = m.score?.fullTime?.away ?? 0;
+            const homeTeam = m.homeTeam?.name;
+            const awayTeam = m.awayTeam?.name;
+            if (hs > as) { eliminatedTeams.add(awayTeam); advancedTeams.add(homeTeam); }
+            if (as > hs) { eliminatedTeams.add(homeTeam); advancedTeams.add(awayTeam); }
+          });
+      });
+    }
+
+    /* ================================================================
+       API 데이터로 그룹 화면 업데이트
+    ================================================================ */
+    function applyAPIData(standingsData, matchesData) {
+      const groupStandings = standingsData.standings || [];
+      const allMatches     = matchesData.matches || [];
+
+      // groups 업데이트 (순위표 + 결과)
+      groupStandings.forEach(gs => {
+        const letter = gs.group?.replace('GROUP_', '');
+        const groupEl = document.getElementById(`gc-${letter}`);
+        if (!groupEl) return;
+
+        // 순위표 tbody 업데이트
+        const tbody = groupEl.querySelector('.standings-table tbody');
+        if (tbody && gs.table?.length) {
+          tbody.innerHTML = gs.table.map((row, i) => `
+            <tr>
+              <td>${i+1} ${row.team.shortName || row.team.name}</td>
+              <td>${row.playedGames}</td>
+              <td>${row.won}</td>
+              <td>${row.draw}</td>
+              <td>${row.lost}</td>
+              <td>${row.goalsFor}:${row.goalsAgainst}</td>
+              <td><b>${row.points}</b></td>
+            </tr>`).join('');
+        }
+
+        // 경기 결과 업데이트
+        const groupMatches = allMatches.filter(
+          m => m.stage === 'GROUP_STAGE' && m.group === gs.group
+        );
+        const matchesGrid = groupEl.querySelector('.matches-grid');
+        if (matchesGrid && groupMatches.length) {
+          const col1 = groupMatches.slice(0, 3);
+          const col2 = groupMatches.slice(3);
+          const renderMatch = m => {
+            const s = m.status;
+            const h = m.score?.fullTime?.home;
+            const a = m.score?.fullTime?.away;
+            let scoreHtml;
+            if (s === 'FINISHED') {
+              scoreHtml = `<span class="score-box">${h} - ${a}</span>`;
+            } else if (s === 'IN_PLAY' || s === 'PAUSED') {
+              const ch = m.score?.currentPeriod?.home ?? '?';
+              const ca = m.score?.currentPeriod?.away ?? '?';
+              scoreHtml = `<span class="score-box live">${ch} - ${ca} 🔴</span>`;
+            } else {
+              const kst = new Date(m.utcDate).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+              scoreHtml = `<span class="score-box">${kst} KST</span>`;
+            }
+            const home = m.homeTeam?.shortName || m.homeTeam?.name || '?';
+            const away = m.awayTeam?.shortName || m.awayTeam?.name || '?';
+            return `<div class="match-single">
+              <div class="match-teams">
+                <span class="team-name-sm home">${home}</span>
+                ${scoreHtml}
+                <span class="team-name-sm away">${away}</span>
+              </div>
+            </div>`;
+          };
+          matchesGrid.innerHTML = `
+            <div class="match-group">${col1.map(renderMatch).join('')}</div>
+            <div class="match-group">${col2.map(renderMatch).join('')}</div>`;
+        }
+      });
+
+      // 생존팀 계산 후 참가자 카드 업데이트
+      calcSurvival(standingsData, allMatches);
+      renderParticipants();
+    }
+
+    /* ================================================================
+       메인 로드 함수
+    ================================================================ */
+    async function loadData() {
+      if (refreshTimer) clearTimeout(refreshTimer);
+
+      // 6/12 04:00 KST 이전이면 더미 유지
+      if (!isAfterKickoff()) {
+        const diff  = WC_START_KST - new Date();
+        const days  = Math.floor(diff / 86400000);
+        const hours = Math.floor((diff % 86400000) / 3600000);
+        const mins  = Math.floor((diff % 3600000) / 60000);
+        setStatusBar('dummy', `⏳ 개막까지 ${days}일 ${hours}시간 ${mins}분 · 더미 데이터`);
+        // 1분마다 카운트다운 갱신, 개막 시간 되면 자동 전환
+        refreshTimer = setTimeout(loadData, 60 * 1000);
+        return;
+      }
+
+      // ── API 호출 ──
+      try {
+        setStatusBar('loading', '데이터 불러오는 중…');
+        const { standings, matches } = await fetchFromAPI();
+        const allMatches = matches.matches || [];
+
+        applyAPIData(standings, allMatches);
+
+        const live = hasLiveMatch(allMatches);
+        const today = hasMatchToday(allMatches);
+        const interval = getRefreshInterval(allMatches);
+        const nextStr = live ? '1분' : today ? '5분' : '1시간';
+        const kst = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+        setStatusBar(live ? 'live' : 'ok',
+          `${live ? '🔴 라이브 ' : ''}업데이트: ${kst} KST · ${nextStr}마다 자동 갱신`);
+
+        refreshTimer = setTimeout(loadData, interval);
+
+      } catch (err) {
+        console.error(err);
+        setStatusBar('error', `⚠️ API 오류: ${err.message} · 5분 후 재시도`);
+        refreshTimer = setTimeout(loadData, 5 * 60 * 1000);
+      }
+    }
+
     function renderGroups() {
       const html = GROUPS.map(g=>{
         const pickerIdx = PARTICIPANTS.map((p,i)=>p.groups.includes(g.id)?i:-1).filter(i=>i>=0);
@@ -367,9 +620,10 @@
       document.getElementById('participants-grid').innerHTML = html;
     }
 
-    document.addEventListener('DOMContentLoaded',()=>{
+    document.addEventListener('DOMContentLoaded', () => {
       renderGroups();
       renderParticipants();
+      loadData(); // 개막 전이면 카운트다운, 이후면 API 호출
     });
   </script>
 </body>
