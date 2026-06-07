@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2026 월드컵 일정 & 조 예측 게임</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Poppins:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy:    #07142b;
+      --gold:    #f0c040;
+      --white:   #f5f5f0;
+      --muted:   #8ba09a;
+      --card:    #0e2a3a;
+      --p0: #FF5252;  --p1: #00BCD4;  --p2: #FFD54F;
+      --p3: #26C6DA;  --p4: #F06292;  --p5: #AB47BC;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--navy); color: var(--white); font-family: 'Poppins', sans-serif; min-height: 100vh; }
+    header { background: linear-gradient(160deg, #0a3d1f 0%, var(--navy) 65%); border-bottom: 2px solid var(--gold); padding: 40px 20px; text-align: center; }
+    h1 { font-family: 'Outfit', sans-serif; font-size: 2.5rem; font-weight: 700; }
+    h1 span { color: var(--gold); }
+    main { max-width: 1100px; margin: 40px auto; padding: 0 20px 80px; }
+    .section-title { font-family: 'Outfit', sans-serif; font-size: 1.8rem; font-weight: 700; margin: 30px 0 20px; }
+    
+    .tab-nav { display: flex; gap: 4px; margin-bottom: 20px; background: var(--card); border: 1px solid rgba(240,192,64,0.18); border-radius: 12px; padding: 6px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 0.9rem; font-weight: 600; }
+    .tab-btn.active { background: var(--gold); color: #000; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .group-card { background: var(--card); border: 1px solid rgba(240,192,64,0.18); border-radius: 12px; overflow: hidden; }
+    .group-header { padding: 14px 18px; background: rgba(240,192,64,0.12); border-bottom: 1px solid rgba(240,192,64,0.18); cursor: pointer; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    .group-label { font-family: 'Outfit', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--gold); }
+    .group-teams { font-size: 0.75rem; color: var(--muted); flex: 1; }
+    .group-pickers { display: flex; gap: 6px; flex-wrap: wrap; }
+    .picker-badge { font-size: 0.7rem; font-family: 'IBM Plex Mono', monospace; color: var(--white); padding: 4px 12px; border-radius: 14px; font-weight: 700; }
+    .picker-badge.p0 { background: var(--p0); } .picker-badge.p1 { background: var(--p1); } .picker-badge.p2 { background: var(--p2); }
+    .picker-badge.p3 { background: var(--p3); } .picker-badge.p4 { background: var(--p4); } .picker-badge.p5 { background: var(--p5); }
+
+    .group-matches { display: none; padding: 18px; background: linear-gradient(135deg, rgba(10,61,31,0.15), rgba(14,42,58,0.2)); }
+    .group-card.open .group-matches { display: block; }
+
+    .standings-wrapper { margin-bottom: 18px; border: 1px solid rgba(240,192,64,0.2); border-radius: 10px; overflow: hidden; background: rgba(240,192,64,0.06); }
+    .standings-title { padding: 12px 16px; background: rgba(240,192,64,0.18); font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 700; color: var(--gold); }
+    .standings-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .standings-table th { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; padding: 10px 12px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--muted); font-weight: 500; }
+    .standings-table th:first-child { text-align: left; padding-left: 16px; }
+    .standings-table td { padding: 8px 12px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .standings-table td:first-child { text-align: left; padding-left: 16px; font-weight: 600; }
+    .standings-table tbody tr:nth-child(1) td, .standings-table tbody tr:nth-child(2) td { color: var(--gold); }
+
+    .matches-label { font-size: 0.75rem; color: var(--gold); font-family: 'Outfit', sans-serif; font-weight: 700; text-transform: uppercase; margin: 10px 0; display: block; }
+    .matches-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .match-group { display: flex; flex-direction: column; gap: 8px; }
+    .match-single { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; }
+    .match-single:hover { background: rgba(255,255,255,0.1); border-color: rgba(240,192,64,0.3); }
+    .match-date-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--gold); margin-bottom: 6px; font-weight: 700; }
+    .match-teams { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 0.8rem; font-weight: 600; }
+    .team-name-sm { flex: 1; }
+    .team-name-sm.home { text-align: right; }
+    .team-name-sm.away { text-align: left; }
+    .score-box { font-family: 'Outfit', sans-serif; font-size: 0.9rem; color: var(--gold); background: rgba(240,192,64,0.2); border: 1px solid rgba(240,192,64,0.4); border-radius: 6px; padding: 3px 8px; min-width: 44px; font-weight: 700; }
+
+    .rules-box { background: linear-gradient(135deg, rgba(15,92,46,0.3), rgba(7,20,43,0.6)); border: 1px solid rgba(240,192,64,0.3); border-radius: 12px; padding: 18px; margin: 20px 0; font-size: 0.88rem; line-height: 1.7; }
+    .rules-box strong { color: var(--gold); }
+    .participants-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin: 20px 0; }
+    .participant-card { background: var(--card); border: 2px solid rgba(240,192,64,0.18); border-radius: 12px; padding: 20px; }
+    .participant-name { font-family: 'Outfit', sans-serif; font-size: 1.2rem; font-weight: 700; margin-bottom: 10px; }
+    .participant-groups { display: flex; gap: 8px; flex-wrap: wrap; }
+    .group-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; padding: 5px 14px; border-radius: 20px; background: rgba(240,192,64,0.12); border: 1px solid rgba(240,192,64,0.3); color: var(--gold); font-weight: 600; }
+    footer { text-align: center; padding: 24px; font-size: 0.75rem; color: var(--muted); border-top: 1px solid rgba(255,255,255,0.07); }
+    @media (max-width: 640px) { .matches-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>2026 FIFA 월드컵<br/><span>일정 & 조 예측 게임</span></h1>
+  </header>
+
+  <main>
+    <section>
+      <h2 class="section-title">📅 경기 일정 & 결과</h2>
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchTab(0)">조별 리그</button>
+        <button class="tab-btn" onclick="switchTab(1)">토너먼트</button>
+      </div>
+      <div id="stage0" class="tab-panel active">
+        <div class="group-grid" id="group-grid"></div>
+      </div>
+      <div id="stage1" class="tab-panel" style="padding:40px;text-align:center;color:var(--muted);">토너먼트는 조별 리그 종료 후 표시됩니다.</div>
+    </section>
+
+    <section>
+      <h2 class="section-title">🏆 조 예측 게임</h2>
+      <div class="rules-box"><strong>📋 게임 규칙:</strong> 6명이 각각 2개 조를 선택. 우승 국가가 속한 조를 맞힌 사람이 승리!</div>
+      <div class="participants-grid" id="participants-grid"></div>
+    </section>
+  </main>
+
+  <footer>2026 FIFA 월드컵 · 조 예측 게임 · 친구들과 함께 ⚽</footer>
+
+  <script>
+    const GROUPS = [
+      {id:'A',teams:['멕시코','남아프리카','대한민국','체코']},
+      {id:'B',teams:['캐나다','보스니아 헤르체고비나','카타르','스위스']},
+      {id:'C',teams:['브라질','모로코','아이티','스코틀랜드']},
+      {id:'D',teams:['미국','파라과이','호주','터키']},
+      {id:'E',teams:['독일','큐라소','코트디부아르','에콰도르']},
+      {id:'F',teams:['네덜란드','일본','스웨덴','튀니지']},
+      {id:'G',teams:['벨기에','스페인','카보베르데','이란','뉴질랜드']},
+      {id:'H',teams:['스페인','카보베르데','사우디아라비아','우루과이']},
+      {id:'I',teams:['프랑스','세네갈','이라크','노르웨이']},
+      {id:'J',teams:['아르헨티나','알제리','오스트리아','요르단']},
+      {id:'K',teams:['포르투갈','콩고민주공화국','우즈베키스탄','콜롬비아']},
+      {id:'L',teams:['잉글랜드','크로아티아','가나','파나마']}
+    ];
+    
+    const PARTICIPANTS = [
+      {name:"안세민",groups:["H","D"]},{name:"맹재영",groups:["I","B"]},{name:"도형주",groups:["L","A"]},
+      {name:"김영신",groups:["J","F"]},{name:"송인범",groups:["K","E"]},{name:"조용민",groups:["C","G"]}
+    ];
+
+    function getPickersByGroup(id) {
+      return PARTICIPANTS.filter(p=>p.groups.includes(id)).map(p=>p.name);
+    }
+
+    function switchTab(n) {
+      document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      document.getElementById('stage'+n).classList.add('active');
+      document.querySelectorAll('.tab-btn')[n].classList.add('active');
+    }
+
+    function toggleGroup(id) {
+      const card = document.getElementById('gc-'+id);
+      if(card) card.classList.toggle('open');
+    }
+
+    function renderGroups() {
+      const html = GROUPS.map(g=>{
+        const pickers = getPickersByGroup(g.id);
+        const pickerIdx = PARTICIPANTS.map((p,i)=>p.groups.includes(g.id)?i:-1).filter(i=>i>=0);
+        const badges = pickerIdx.map(i=>`<span class="picker-badge p${i}">${PARTICIPANTS[i].name}</span>`).join('');
+        const matches = Array.from({length:6},(_, i)=>`<div class="match-single">
+          <div class="match-date-time">경기 예정</div>
+          <div class="match-teams">
+            <span class="team-name-sm home">${g.teams[i%g.teams.length]}</span>
+            <span class="score-box">-</span>
+            <span class="team-name-sm away">${g.teams[(i+1)%g.teams.length]}</span>
+          </div>
+        </div>`);
+        return `<div class="group-card" id="gc-${g.id}">
+          <div class="group-header" onclick="toggleGroup('${g.id}')">
+            <span class="group-label">${g.id}조</span>
+            <span class="group-teams">${g.teams.join(' · ')}</span>
+            ${badges?`<div class="group-pickers">${badges}</div>`:''}
+            <span style="color:var(--gold);">▼</span>
+          </div>
+          <div class="group-matches">
+            <div class="standings-wrapper">
+              <div class="standings-title">📊 조별 순위</div>
+              <table class="standings-table">
+                <thead><tr><th>팀</th><th>경기</th><th>승</th><th>무</th><th>패</th><th>득실</th><th>점</th></tr></thead>
+                <tbody>
+                  <tr><td>1 ${g.teams[0]}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td><b>-</b></td></tr>
+                  <tr><td>2 ${g.teams[1]}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td><b>-</b></td></tr>
+                  <tr><td>3 ${g.teams[2]}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td><b>-</b></td></tr>
+                  ${g.teams[3]?`<tr><td>4 ${g.teams[3]}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td><b>-</b></td></tr>`:''}
+                  ${g.teams[4]?`<tr><td>5 ${g.teams[4]}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td><b>-</b></td></tr>`:''}
+                </tbody>
+              </table>
+            </div>
+            <span class="matches-label">⚽ 경기 결과</span>
+            <div class="matches-grid">
+              <div class="match-group">${matches.slice(0,3).join('')}</div>
+              <div class="match-group">${matches.slice(3).join('')}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+      document.getElementById('group-grid').innerHTML = html;
+    }
+
+    function renderParticipants() {
+      const html = PARTICIPANTS.map(p=>`<div class="participant-card">
+        <div class="participant-name">${p.name}</div>
+        <div class="participant-groups">${p.groups.map(g=>`<span class="group-badge">${g}조</span>`).join('')}</div>
+      </div>`).join('');
+      document.getElementById('participants-grid').innerHTML = html;
+    }
+
+    document.addEventListener('DOMContentLoaded',()=>{
+      renderGroups();
+      renderParticipants();
+    });
+  </script>
+</body>
+</html>
