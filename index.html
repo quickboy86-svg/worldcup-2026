@@ -99,7 +99,11 @@
     .team-chip.eliminated { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.25); text-decoration: line-through; }
 
     .ko-stage { margin-bottom: 28px; }
-    .ko-stage-title { font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: var(--gold); letter-spacing: 0.06em; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 12px; }
+    .ko-stage-title { font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: var(--gold); letter-spacing: 0.06em; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 12px; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+    .ko-stage-title:hover { color: #ffe066; }
+    .ko-toggle { font-size: 0.65rem; color: var(--muted); transition: transform 0.2s; }
+    .ko-stage.collapsed .ko-toggle { transform: rotate(180deg); }
+    .ko-stage.collapsed .ko-matches-grid { display: none; }
     .ko-matches-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     footer { text-align: center; padding: 24px; font-size: 0.75rem; color: var(--muted); border-top: 1px solid rgba(255,255,255,0.07); }
     @media (max-width: 640px) { .matches-grid { grid-template-columns: 1fr; } .ko-matches-grid { grid-template-columns: 1fr; } }
@@ -442,12 +446,17 @@
           </div>
         </div>`;
 
+      const titleHtml = stage =>
+        `<div class="ko-stage-title" onclick="this.closest('.ko-stage').classList.toggle('collapsed')">
+          ${STAGE_LABELS[stage]}<span class="ko-toggle">▲</span>
+        </div>`;
+
       if (!koMatches.length) {
         const html = stages.map(stage => {
           const ms = KNOCKOUT_SCHEDULE.filter(m => m.round === stage);
           if (!ms.length) return '';
           const cards = ms.map(m => card(resolveLabel(m.s1), resolveLabel(m.s2), '<span class="score-box">-</span>', m.date)).join('');
-          return `<div class="ko-stage"><div class="ko-stage-title">${STAGE_LABELS[stage]}</div><div class="ko-matches-grid">${cards}</div></div>`;
+          return `<div class="ko-stage">${titleHtml(stage)}<div class="ko-matches-grid">${cards}</div></div>`;
         }).join('');
         document.getElementById('tournament-bracket').innerHTML = html;
         return;
@@ -535,14 +544,23 @@
         };
       });
 
+      // 자동 접기: 모든 경기가 FINISHED인 단계는 접힘, 첫 번째 진행 중/예정 단계는 펼침
+      const stagesWithMatches = stages.filter(s => byStage[s]?.length);
+      const allDone = s => byStage[s]?.length > 0 && byStage[s].every(m => m.status === 'FINISHED');
+      let activeStage = stagesWithMatches.find(s => !allDone(s));
+      if (!activeStage) activeStage = stagesWithMatches[stagesWithMatches.length - 1];
+      const activeIdx = stagesWithMatches.indexOf(activeStage);
+
       const html = stages.map(stage => {
         const ms = byStage[stage];
         if (!ms?.length) return '';
+        const stageIdx = stagesWithMatches.indexOf(stage);
+        const collapsed = stageIdx < activeIdx ? 'collapsed' : '';
         const cards = ms.map(m => {
           const t = teams[m.id] || { home: '미정', away: '미정' };
           return card(t.home, t.away, mkScore(m), fmtKST(m.utcDate));
         }).join('');
-        return `<div class="ko-stage"><div class="ko-stage-title">${STAGE_LABELS[stage]}</div><div class="ko-matches-grid">${cards}</div></div>`;
+        return `<div class="ko-stage ${collapsed}">${titleHtml(stage)}<div class="ko-matches-grid">${cards}</div></div>`;
       }).join('');
 
       document.getElementById('tournament-bracket').innerHTML = html;
