@@ -447,7 +447,7 @@
           .sort((a, b) => new Date(a.utcDate) - new Date(b.utcDate));
       });
 
-      function scoreHtml(m) {
+      function mkScore(m) {
         const s = m.status;
         if (s === 'FINISHED') {
           const h = m.score?.fullTime?.home, a = m.score?.fullTime?.away;
@@ -519,7 +519,7 @@
         if (!ms?.length) return '';
         const cards = ms.map(m => {
           const t = teams[m.id] || { home: '미정', away: '미정' };
-          return card(t.home, t.away, scoreHtml(m), fmtKST(m.utcDate));
+          return card(t.home, t.away, mkScore(m), fmtKST(m.utcDate));
         }).join('');
         return `<div class="ko-stage"><div class="ko-stage-title">${STAGE_LABELS[stage]}</div><div class="ko-matches-grid">${cards}</div></div>`;
       }).join('');
