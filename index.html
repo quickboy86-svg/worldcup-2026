@@ -13,7 +13,7 @@
       --muted:   #8ba09a;
       --card:    #0e2a3a;
       --p0: #FF5252;  --p1: #00BCD4;  --p2: #FFD54F;
-      --p3: #26C6DA;  --p4: #F06292;  --p5: #AB47BC;
+      --p3: #AB47BC;  --p4: #F06292;  --p5: #26C6DA;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--navy); color: var(--white); font-family: 'Poppins', sans-serif; min-height: 100vh; }
@@ -82,6 +82,7 @@
     .participant-name { font-family: 'Outfit', sans-serif; font-size: 1.2rem; font-weight: 700; }
     .participant-alive-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); }
     .participant-alive-count span { color: #4ade80; font-weight: 700; }
+    .participant-score { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; font-weight: 700; color: var(--gold); background: rgba(240,192,64,0.12); border: 1px solid rgba(240,192,64,0.3); border-radius: 6px; padding: 1px 8px; margin-left: 10px; vertical-align: middle; }
 
     /* 조별 팀 목록 */
     .participant-group-section { display: flex; flex-direction: column; gap: 6px; }
@@ -425,7 +426,7 @@
         const group = GROUPS.find(g => g.teams.includes(teamName));
         if (!group) return '';
         return PARTICIPANTS
-          .map((p, i) => ({ name: p.name, ci: i, groups: p.groups }))
+          .map((p, i) => ({ name: p.name, ci: p.colorIdx ?? i, groups: p.groups }))
           .filter(p => p.groups.includes(group.id))
           .map(p => `<span class="picker-badge p${p.ci}" style="font-size:0.6rem;padding:2px 7px;${side==='left'?'margin-right':'margin-left'}:4px;vertical-align:middle;">${p.name}</span>`)
           .join('');
@@ -546,7 +547,7 @@
 
       document.getElementById('tournament-bracket').innerHTML = html;
 
-      if (!autoSwitchedToTournament) {
+      if (!autoSwitchedToTournament && koMatches.length > 0) {
         switchTab(1);
         autoSwitchedToTournament = true;
       }
@@ -570,11 +571,12 @@
     function calcSurvival(standingsData, allMatches) {
       eliminatedTeams.clear();
       advancedTeams.clear();
+      teamRoundPoints.clear();
 
       const groupStandings = standingsData.standings || [];
 
       // ── 조별리그 완료된 조 처리 ──
-      const thirdPlacers = []; // { team, points, gd, gf }
+      const thirdPlacers = [];
       groupStandings.forEach(gs => {
         const table = gs.table || [];
         if (!table.length) return;
@@ -587,8 +589,8 @@
           groupMatches.every(m => m.status === 'FINISHED');
 
         if (allFinished) {
-          if (table[0]) advancedTeams.add(toKo(table[0].team));
-          if (table[1]) advancedTeams.add(toKo(table[1].team));
+          if (table[0]) { const k=toKo(table[0].team); advancedTeams.add(k); addPoints(k, 1); }
+          if (table[1]) { const k=toKo(table[1].team); advancedTeams.add(k); addPoints(k, 1); }
           if (table[2]) thirdPlacers.push({
             name: toKo(table[2].team),
             points: table[2].points,
@@ -604,11 +606,12 @@
         thirdPlacers.sort((a,b) =>
           b.points - a.points || b.gd - a.gd || b.gf - a.gf
         );
-        thirdPlacers.slice(0, 8).forEach(t => advancedTeams.add(t.name));
+        thirdPlacers.slice(0, 8).forEach(t => { advancedTeams.add(t.name); addPoints(t.name, 1); });
         thirdPlacers.slice(8).forEach(t  => eliminatedTeams.add(t.name));
       }
 
-      // ── 토너먼트 단계 처리 ──
+      // ── 토너먼트 단계 처리 (단계별 진출 점수) ──
+      const KO_POINTS = { LAST_32: 2, LAST_16: 3, QUARTER_FINALS: 4 };
       const KO_STAGES = ['LAST_32','LAST_16','QUARTER_FINALS','SEMI_FINALS','FINAL'];
       KO_STAGES.forEach(stage => {
         allMatches
@@ -618,8 +621,17 @@
             const as = m.score?.fullTime?.away ?? 0;
             const homeTeam = toKo(m.homeTeam);
             const awayTeam = toKo(m.awayTeam);
-            if (hs > as) { eliminatedTeams.add(awayTeam); advancedTeams.add(homeTeam); }
-            if (as > hs) { eliminatedTeams.add(homeTeam); advancedTeams.add(awayTeam); }
+            const pts = KO_POINTS[stage] || 0;
+            if (hs > as) {
+              eliminatedTeams.add(awayTeam);
+              advancedTeams.add(homeTeam);
+              if (pts) addPoints(homeTeam, pts);
+            }
+            if (as > hs) {
+              eliminatedTeams.add(homeTeam);
+              advancedTeams.add(awayTeam);
+              if (pts) addPoints(awayTeam, pts);
+            }
           });
       });
     }
@@ -627,7 +639,8 @@
     /* ================================================================
        API 데이터로 그룹 화면 업데이트
     ================================================================ */
-    function applyAPIData(standingsData, allMatches) {
+    function applyAPIData(standingsData, matchesData) {
+      const allMatches = matchesData.matches || [];
       const groupStandings = standingsData.standings || [];
 
       groupStandings.forEach(gs => {
@@ -705,7 +718,7 @@
         const { standings, matches, updatedAt } = await fetchFromAPI();
         const allMatches = matches.matches || [];
 
-        applyAPIData(standings, allMatches);
+        applyAPIData(standings, matches);
 
         const live = hasLiveMatch(allMatches);
         const today = hasMatchToday(allMatches);
@@ -730,7 +743,10 @@
     function renderGroups() {
       const html = GROUPS.map(g=>{
         const pickerIdx = PARTICIPANTS.map((p,i)=>p.groups.includes(g.id)?i:-1).filter(i=>i>=0);
-        const badges = pickerIdx.map(i=>`<span class="picker-badge p${i}">${PARTICIPANTS[i].name}</span>`).join('');
+        const badges = pickerIdx.map(i=>{
+          const ci = PARTICIPANTS[i].colorIdx ?? i;
+          return `<span class="picker-badge p${ci}">${PARTICIPANTS[i].name}</span>`;
+        }).join('');
         const matchesCol1 = g.matches.slice(0,3);
         const matchesCol2 = g.matches.slice(3);
         const renderMatches = list => list.map(m=>`
@@ -777,8 +793,25 @@
        - 비어있으면 아직 시작 전 → 모든 팀 pending 상태
        API 연동 시 이 두 Set을 채워주면 자동으로 반영됨
     ================================================================ */
-    const eliminatedTeams = new Set(); // 탈락팀 (예: new Set(['멕시코', '브라질']))
-    const advancedTeams   = new Set(); // 진출확정팀
+    const COLOR_HEX = ['#FF5252','#00BCD4','#FFD54F','#AB47BC','#F06292','#26C6DA'];
+
+    const eliminatedTeams  = new Set();
+    const advancedTeams    = new Set();
+    const teamRoundPoints  = new Map();
+
+    function addPoints(teamName, pts) {
+      teamRoundPoints.set(teamName, (teamRoundPoints.get(teamName) || 0) + pts);
+    }
+
+    function getParticipantScore(p) {
+      let score = 0;
+      p.groups.forEach(gid => {
+        const g = GROUPS.find(g => g.id === gid);
+        if (!g) return;
+        g.teams.forEach(t => { score += teamRoundPoints.get(t) || 0; });
+      });
+      return score;
+    }
 
     function getTeamStatus(teamName) {
       if (eliminatedTeams.has(teamName)) return 'eliminated';
@@ -802,26 +835,30 @@
         const groupSections = p.groups.map(gid => {
           const g = GROUPS.find(g => g.id === gid);
           if (!g) return '';
+          const ci = p.colorIdx ?? PARTICIPANTS.indexOf(p);
           const chips = g.teams.map(t => {
             const status = getTeamStatus(t);
             return `<span class="team-chip ${status}">${t}</span>`;
           }).join('');
           return `
             <div class="participant-group-section">
-              <div class="participant-group-label">📌 ${gid}조</div>
+              <div class="participant-group-label" style="color:${COLOR_HEX[ci]}">📌 ${gid}조</div>
               <div class="team-chips">${chips}</div>
             </div>`;
         }).join('');
 
-        // 탈락팀이 하나라도 있으면 카운트 표시
-        const showCount = eliminatedTeams.size > 0 || advancedTeams.size > 0;
-        const countHtml = showCount
+        const showStats = eliminatedTeams.size > 0 || advancedTeams.size > 0;
+        const score = getParticipantScore(p);
+        const scoreHtml = showStats
+          ? `<span class="participant-score">${score}점</span>`
+          : '';
+        const countHtml = showStats
           ? `<div class="participant-alive-count">생존 <span>${aliveCount}</span> / ${totalCount}팀</div>`
           : '';
 
         return `<div class="participant-card">
           <div class="participant-header">
-            <div class="participant-name">${p.name}</div>
+            <div class="participant-name" style="color:${COLOR_HEX[p.colorIdx ?? PARTICIPANTS.indexOf(p)]}">${p.name}${scoreHtml}</div>
             ${countHtml}
           </div>
           ${groupSections}
