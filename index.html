@@ -848,17 +848,13 @@
         }).join('');
 
         const showStats = eliminatedTeams.size > 0 || advancedTeams.size > 0;
-        const score = getParticipantScore(p);
-        const scoreHtml = showStats
-          ? `<span class="participant-score">${score}점</span>`
-          : '';
         const countHtml = showStats
           ? `<div class="participant-alive-count">생존 <span>${aliveCount}</span> / ${totalCount}팀</div>`
           : '';
 
         return `<div class="participant-card">
           <div class="participant-header">
-            <div class="participant-name" style="color:${COLOR_HEX[p.colorIdx ?? PARTICIPANTS.indexOf(p)]}">${p.name}${scoreHtml}</div>
+            <div class="participant-name" style="color:${COLOR_HEX[p.colorIdx ?? PARTICIPANTS.indexOf(p)]}">${p.name}</div>
             ${countHtml}
           </div>
           ${groupSections}
